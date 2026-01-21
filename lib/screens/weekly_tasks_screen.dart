@@ -1,17 +1,61 @@
 import 'package:flutter/material.dart';
-
-import 'package:provider/provider.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:soumia_journey/l10n/app_localizations.dart';
-import '../providers/task_provider.dart';
 import '../models/task_model.dart';
-
+import '../providers/task_provider.dart';
 import '../services/number_helper.dart';
 import '../services/time_slot_helper.dart';
-import '../widgets/heartbeat_animation.dart';
+import '../widgets/view_toggle_button.dart';
+import '../widgets/weekly_table_view.dart';
 
-class WeeklyTasksScreen extends StatelessWidget {
+class WeeklyTasksScreen extends StatefulWidget {
   const WeeklyTasksScreen({super.key});
+
+  @override
+  State<WeeklyTasksScreen> createState() => _WeeklyTasksScreenState();
+}
+
+class _WeeklyTasksScreenState extends State<WeeklyTasksScreen> {
+  bool _isTableView = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateOrientation();
+  }
+
+  void _updateOrientation() {
+    if (_isTableView) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    }
+  }
+
+  void _toggleView() {
+    setState(() {
+      _isTableView = !_isTableView;
+    });
+    _updateOrientation();
+  }
+
+  @override
+  void dispose() {
+    // Reset to portrait when leaving the screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -19,69 +63,67 @@ class WeeklyTasksScreen extends StatelessWidget {
 
     return Consumer<TaskProvider>(
       builder: (context, provider, child) {
-        final tasks = provider.getTasksForWeek(provider.focusedDate).where((t) {
-          // Strict filter: only show tasks that belong to the focused month
-          return t.date.month == provider.focusedDate.month;
-        }).toList();
-
-        // Group tasks by date
-        final groupedTasks = <DateTime, List<Task>>{};
-        for (var task in tasks) {
-          final dateKey = DateTime(
-            task.date.year,
-            task.date.month,
-            task.date.day,
-          );
-          groupedTasks.putIfAbsent(dateKey, () => []).add(task);
-        }
-
-        final sortedDates = groupedTasks.keys.toList()..sort();
+        final tasks = provider.getTasksForWeek(provider.focusedDate);
 
         return Scaffold(
           appBar: AppBar(
             title: Text(l10n.weekly, style: const TextStyle(fontSize: 18)),
-          ),
-          body: tasks.isEmpty
-              ? _buildEmptyState(context, l10n)
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  itemCount: sortedDates.length,
-                  itemBuilder: (context, index) {
-                    final date = sortedDates[index];
-                    final dateTasks = groupedTasks[date]!;
-                    return _DateGroupCard(date: date, tasks: dateTasks);
-                  },
+            actions: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: ViewToggleButton(
+                  isTableView: _isTableView,
+                  onToggle: _toggleView,
                 ),
+              ),
+            ],
+          ),
+          body: _isTableView
+              ? WeeklyTableView(focusedDate: provider.focusedDate, tasks: tasks)
+              : _WeeklyListView(tasks: tasks),
         );
       },
     );
   }
+}
 
-  Widget _buildEmptyState(BuildContext context, AppLocalizations l10n) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          HeartbeatAnimation(
-            child: Icon(
-              Icons.favorite_rounded,
-              size: 64,
-              color: Theme.of(context).colorScheme.primaryContainer,
-            ),
+class _WeeklyListView extends StatelessWidget {
+  final List<Task> tasks;
+  const _WeeklyListView({required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
+    if (tasks.isEmpty) {
+      return Center(
+        child: Text(
+          l10n.noTasks,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontSize: 16,
           ),
-          const SizedBox(height: 16),
-          Text(
-            l10n.noTasks,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontSize: 16,
-            ),
-          ),
-        ],
-      ),
+        ),
+      );
+    }
+
+    // Group tasks by date
+    final groupedTasks = <DateTime, List<Task>>{};
+    for (var task in tasks) {
+      final dateKey = DateTime(task.date.year, task.date.month, task.date.day);
+      groupedTasks.putIfAbsent(dateKey, () => []).add(task);
+    }
+
+    final sortedDates = groupedTasks.keys.toList()..sort();
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: sortedDates.length,
+      itemBuilder: (context, index) {
+        final date = sortedDates[index];
+        final dateTasks = groupedTasks[date]!;
+        return _DateGroupCard(date: date, tasks: dateTasks);
+      },
     );
   }
 }
@@ -124,7 +166,7 @@ class _DateGroupCard extends StatelessWidget {
             decoration: BoxDecoration(
               color: isDark
                   ? colorScheme.surfaceContainer
-                  : colorScheme.primaryContainer.withAlpha(51),
+                  : colorScheme.secondary.withAlpha(38),
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(20),
               ),
@@ -135,7 +177,7 @@ class _DateGroupCard extends StatelessWidget {
                   dateStr,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: colorScheme.primary,
+                    color: colorScheme.onSurface,
                     fontSize: 14,
                   ),
                 ),
@@ -174,8 +216,8 @@ class _TaskTile extends StatelessWidget {
             task.isCompleted ? Icons.favorite : Icons.favorite_border,
             size: 24,
             color: task.isCompleted
-                ? colorScheme.primary
-                : colorScheme.primary.withAlpha(isDark ? 102 : 128),
+                ? colorScheme.tertiary
+                : colorScheme.tertiary.withAlpha(isDark ? 102 : 128),
           ),
         ),
       ),
@@ -267,7 +309,7 @@ class _TaskTile extends StatelessWidget {
                       Provider.of<TaskProvider>(
                         context,
                         listen: false,
-                      ).deleteRecurringTaskForWeek(
+                      ).deleteRecurringTaskForMonth(
                         task.recurrenceId!,
                         task.date,
                       );
@@ -279,7 +321,7 @@ class _TaskTile extends StatelessWidget {
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
                     child: Text(
-                      l10n.deleteAllWeek,
+                      l10n.deleteAllMonth,
                       style: TextStyle(color: colorScheme.error, fontSize: 13),
                     ),
                   ),

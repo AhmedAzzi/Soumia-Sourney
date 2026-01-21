@@ -181,9 +181,18 @@ class TaskProvider with ChangeNotifier {
 
   // Get tasks for a specific time slot on selected date
   List<Task> getTasksForTimeSlot(String timeSlot) {
-    return tasksForSelectedDate
+    final tasks = tasksForSelectedDate
         .where((task) => task.timeSlot == timeSlot)
         .toList();
+
+    // Sort by title then ID to ensure stable order when task status changes
+    tasks.sort((a, b) {
+      final titleCmp = a.title.compareTo(b.title);
+      if (titleCmp != 0) return titleCmp;
+      return a.id.compareTo(b.id);
+    });
+
+    return tasks;
   }
 
   // Get current time slots based on mode (fixed to prayer)

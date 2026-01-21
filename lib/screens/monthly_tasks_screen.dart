@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -9,50 +10,149 @@ import '../models/task_model.dart';
 import '../services/number_helper.dart';
 import '../services/time_slot_helper.dart';
 import '../widgets/heartbeat_animation.dart';
+import '../widgets/monthly_calendar_view.dart';
+import '../widgets/view_toggle_button.dart';
 
-class MonthlyTasksScreen extends StatelessWidget {
+class MonthlyTasksScreen extends StatefulWidget {
   const MonthlyTasksScreen({super.key});
+
+  @override
+  State<MonthlyTasksScreen> createState() => _MonthlyTasksScreenState();
+}
+
+class _MonthlyTasksScreenState extends State<MonthlyTasksScreen> {
+  bool _isCalendarView = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _updateOrientation();
+  }
+
+  void _updateOrientation() {
+    if (_isCalendarView) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    }
+  }
+
+  void _toggleView() {
+    setState(() {
+      _isCalendarView = !_isCalendarView;
+    });
+    _updateOrientation();
+  }
+
+  @override
+  void dispose() {
+    // Reset to portrait when leaving the screen
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<TaskProvider>(
+      builder: (context, provider, child) {
+        final tasks = provider.getTasksForMonth(provider.focusedDate);
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  onPressed: () {
+                    final newDate = DateTime(
+                      provider.focusedDate.year,
+                      provider.focusedDate.month - 1,
+                      1,
+                    );
+                    provider.setFocusedDate(newDate);
+                  },
+                ),
+                Text(
+                  DateFormat(
+                    'MMMM yyyy',
+                    Localizations.localeOf(context).languageCode,
+                  ).format(provider.focusedDate).toLatinNumbers(),
+                  style: const TextStyle(fontSize: 18),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  onPressed: () {
+                    final newDate = DateTime(
+                      provider.focusedDate.year,
+                      provider.focusedDate.month + 1,
+                      1,
+                    );
+                    provider.setFocusedDate(newDate);
+                  },
+                ),
+              ],
+            ),
+            centerTitle: true,
+            actions: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: ViewToggleButton(
+                  isTableView: _isCalendarView,
+                  onToggle: _toggleView,
+                ),
+              ),
+            ],
+          ),
+          body: _isCalendarView
+              ? MonthlyCalendarView(
+                  focusedDate: provider.focusedDate,
+                  tasks: tasks,
+                )
+              : _MonthlyListView(tasks: tasks),
+        );
+      },
+    );
+  }
+}
+
+class _MonthlyListView extends StatelessWidget {
+  final List<Task> tasks;
+  const _MonthlyListView({required this.tasks});
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Consumer<TaskProvider>(
-      builder: (context, provider, child) {
-        final tasks = provider.getTasksForMonth(provider.focusedDate);
+    if (tasks.isEmpty) {
+      return _buildEmptyState(context, l10n);
+    }
 
-        // Group tasks by date
-        final groupedTasks = <DateTime, List<Task>>{};
-        for (var task in tasks) {
-          final dateKey = DateTime(
-            task.date.year,
-            task.date.month,
-            task.date.day,
-          );
-          groupedTasks.putIfAbsent(dateKey, () => []).add(task);
-        }
+    // Group tasks by date
+    final groupedTasks = <DateTime, List<Task>>{};
+    for (var task in tasks) {
+      final dateKey = DateTime(task.date.year, task.date.month, task.date.day);
+      groupedTasks.putIfAbsent(dateKey, () => []).add(task);
+    }
 
-        final sortedDates = groupedTasks.keys.toList()..sort();
+    final sortedDates = groupedTasks.keys.toList()..sort();
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Text(l10n.monthly, style: const TextStyle(fontSize: 18)),
-          ),
-          body: tasks.isEmpty
-              ? _buildEmptyState(context, l10n)
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  itemCount: sortedDates.length,
-                  itemBuilder: (context, index) {
-                    final date = sortedDates[index];
-                    final dateTasks = groupedTasks[date]!;
-                    return _DateGroupCard(date: date, tasks: dateTasks);
-                  },
-                ),
-        );
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      itemCount: sortedDates.length,
+      itemBuilder: (context, index) {
+        final date = sortedDates[index];
+        final dateTasks = groupedTasks[date]!;
+        return _DateGroupCard(date: date, tasks: dateTasks);
       },
     );
   }
